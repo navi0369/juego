@@ -7,8 +7,8 @@
 # Opción 1: Usar el script automático (Windows)
 iniciar_servidor.bat
 
-# Opción 2: Comando manual
-uvicorn server:asgi --host 0.0.0.0 --port 8000
+# Opción 2: Comando manual (con entorno virtual)
+C:/proyect/.venv/Scripts/python.exe -m uvicorn server:asgi --host 0.0.0.0 --port 8000
 ```
 
 ### 2. Obtener tu IP LAN
@@ -26,7 +26,7 @@ Los jugadores abren un navegador y van a:
 ```
 http://TU-IP-LAN:8000
 ```
-Ejemplo: `http://192.168.1.100:8000`
+Ejemplo: `http://192.168.0.13:8000`
 
 ## 🎮 Cómo Jugar
 

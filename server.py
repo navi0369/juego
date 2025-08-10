@@ -524,6 +524,15 @@ async def submit_answer(sid, data):
         await sio.emit("error", {"message": "Error al enviar respuesta"}, room=sid)
 
 
+# Cargar preguntas al inicializar (fuera del if __name__)
+print("🚀 Cargando preguntas del sistema...")
+game_state["questions"] = load_questions()
+if not game_state["questions"]:
+    print("⚠️ ADVERTENCIA: No se pudieron cargar preguntas. Verifica data/items.csv")
+else:
+    print(f"✅ Sistema listo con {len(game_state['questions'])} preguntas")
+
+
 # Inicializar servidor
 if __name__ == "__main__":
     # Cargar preguntas al inicio
