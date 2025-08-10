@@ -22,7 +22,9 @@ from rapidfuzz import fuzz
 # Configuración del juego
 TARGET_POINTS_DEFAULT = 15  # Puntos necesarios para ganar
 ROUND_SECONDS = 30  # Duración de cada ronda en segundos
-POINTS_BY_RANK = {1: 3, 2: 2, 3: 1}  # Puntos por posición en el podio
+FIRST_CORRECT_POINTS = 3  # Puntos para el primero que acierta
+OTHER_CORRECT_POINTS = 1  # Puntos para otros que aciertan
+MAX_SUBMISSIONS_PER_SECOND = 5  # Límite antispam
 
 # Estado global del juego
 game_state = {
@@ -38,6 +40,7 @@ app = FastAPI(title="Trivia LAN Game Server")
 
 # Montar archivos estáticos
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/images", StaticFiles(directory="data/images"), name="images")
 
 # Integrar Socket.IO con FastAPI
 asgi = socketio.ASGIApp(sio, app)
@@ -45,17 +48,22 @@ asgi = socketio.ASGIApp(sio, app)
 
 def load_questions() -> List[Dict]:
     """
-    Carga las preguntas desde el archivo CSV
+    Carga las preguntas desde el archivo CSV (con soporte para imágenes)
     """
     questions = []
-    csv_path = os.path.join("data", "items.csv")
+    csv_path = os.path.join("data", "items_images.csv")
     
     if not os.path.exists(csv_path):
-        print(f"⚠️ Archivo {csv_path} no encontrado")
-        return questions
+        print(f"⚠️ Archivo {csv_path} no encontrado, intentando con items.csv...")
+        csv_path = os.path.join("data", "items.csv")
+        
+        if not os.path.exists(csv_path):
+            print(f"⚠️ Archivo {csv_path} no encontrado")
+            return questions
     
     try:
         df = pd.read_csv(csv_path)
+        
         for _, row in df.iterrows():
             # Dividir respuestas por punto y coma
             respuestas = [resp.strip() for resp in str(row['respuestas']).split(';')]
@@ -63,9 +71,18 @@ def load_questions() -> List[Dict]:
             question = {
                 'id': int(row['id']),
                 'tipo': str(row['tipo']),
-                'texto': str(row['texto']),
                 'respuestas': respuestas
             }
+            
+            # Verificar si es formato con imágenes o texto
+            if 'imagen' in df.columns:
+                question['pregunta'] = str(row['pregunta'])
+                question['imagen'] = str(row['imagen'])
+                question['es_imagen'] = True
+            else:
+                question['texto'] = str(row['texto'])
+                question['es_imagen'] = False
+            
             questions.append(question)
         
         print(f"✅ Cargadas {len(questions)} preguntas desde {csv_path}")
@@ -119,9 +136,12 @@ def create_room(room_id: str, host_sid: str) -> Dict:
         "game_started": False,
         "current_question": None,
         "round_start_time": None,
-        "round_timer": None,
+        "round_timer_task": None,  # Tarea asyncio para cancelar
         "target_points": TARGET_POINTS_DEFAULT,
-        "round_answers": {},  # sid -> respuesta y timestamp
+        "round_answers": {},  # sid -> lista de respuestas con timestamps
+        "round_correct_players": set(),  # jugadores que ya acertaron en esta ronda
+        "player_submission_times": {},  # sid -> lista de timestamps para antispam
+        "used_questions": set(),  # IDs de preguntas ya usadas
         "game_finished": False,
         "winner": None
     }
@@ -180,14 +200,22 @@ def remove_player_from_room(room_id: str, sid: str):
             del game_state["rooms"][room_id]
 
 
-def get_random_question() -> Optional[Dict]:
+def get_random_question(used_questions: Set[int]) -> Optional[Dict]:
     """
-    Obtiene una pregunta aleatoria
+    Obtiene una pregunta aleatoria que no haya sido usada
     """
     if not game_state["questions"]:
         return None
     
-    return random.choice(game_state["questions"])
+    # Filtrar preguntas no usadas
+    available_questions = [q for q in game_state["questions"] if q["id"] not in used_questions]
+    
+    # Si no hay preguntas disponibles, reiniciar la lista
+    if not available_questions:
+        available_questions = game_state["questions"]
+        used_questions.clear()
+    
+    return random.choice(available_questions)
 
 
 async def start_round(room_id: str):
@@ -198,30 +226,64 @@ async def start_round(room_id: str):
     if not room or room["game_finished"]:
         return
     
-    # Seleccionar pregunta aleatoria
-    question = get_random_question()
+    # Cancelar cualquier timer anterior
+    if room["round_timer_task"] and not room["round_timer_task"].done():
+        room["round_timer_task"].cancel()
+    
+    # Seleccionar pregunta aleatoria que no haya sido usada
+    question = get_random_question(room["used_questions"])
     if not question:
         await sio.emit("error", {"message": "No hay preguntas disponibles"}, room=room_id)
         return
+    
+    # Marcar pregunta como usada
+    room["used_questions"].add(question["id"])
     
     # Configurar ronda
     room["current_question"] = question
     room["round_start_time"] = time.time()
     room["round_answers"] = {}
+    room["round_correct_players"] = set()
+    room["player_submission_times"] = {}
     
     # Enviar pregunta a todos los jugadores
     question_data = {
         "id": question["id"],
         "tipo": question["tipo"],
-        "texto": question["texto"],
-        "duration": ROUND_SECONDS
+        "duration": ROUND_SECONDS,
+        "es_imagen": question.get("es_imagen", False)
     }
+    
+    # Agregar texto o imagen según el tipo de pregunta
+    if question.get("es_imagen", False):
+        question_data["pregunta"] = question["pregunta"]
+        # Convertir ruta relativa a URL absoluta si es necesario
+        imagen = question["imagen"]
+        if not imagen.startswith("http"):
+            question_data["imagen"] = f"/images/{imagen.replace('images/', '')}"
+        else:
+            question_data["imagen"] = imagen
+    else:
+        question_data["texto"] = question["texto"]
     
     await sio.emit("round_start", question_data, room=room_id)
     
-    # Programar fin de ronda
-    await asyncio.sleep(ROUND_SECONDS)
-    await end_round(room_id)
+    # Programar fin de ronda con una tarea que podamos cancelar
+    room["round_timer_task"] = asyncio.create_task(schedule_round_end(room_id))
+
+
+async def schedule_round_end(room_id: str):
+    """
+    Programa el fin de ronda después del tiempo límite
+    """
+    try:
+        await asyncio.sleep(ROUND_SECONDS)
+        room = get_room(room_id)
+        if room and room["current_question"]:  # Solo terminar si la ronda sigue activa
+            await end_round(room_id)
+    except asyncio.CancelledError:
+        # La tarea fue cancelada, esto es normal cuando la ronda termina anticipadamente
+        pass
 
 
 async def end_round(room_id: str):
@@ -232,41 +294,54 @@ async def end_round(room_id: str):
     if not room or not room["current_question"]:
         return
     
+    # Cancelar el timer si está activo
+    if room["round_timer_task"] and not room["round_timer_task"].done():
+        room["round_timer_task"].cancel()
+    
     question = room["current_question"]
     correct_answers = []
     
-    # Procesar respuestas y determinar ganadores
-    for sid, answer_data in room["round_answers"].items():
+    # Procesar todas las respuestas de todos los jugadores
+    for sid, answer_list in room["round_answers"].items():
         if sid in room["players"]:
-            user_answer = answer_data["answer"]
-            is_correct = check_answer(user_answer, question["respuestas"])
+            player_name = room["players"][sid]["name"]
             
-            if is_correct:
-                correct_answers.append({
-                    "sid": sid,
-                    "name": room["players"][sid]["name"],
-                    "answer": user_answer,
-                    "timestamp": answer_data["timestamp"]
-                })
+            # Buscar la primera respuesta correcta de este jugador
+            first_correct = None
+            for answer_data in answer_list:
+                user_answer = answer_data["answer"]
+                is_correct = check_answer(user_answer, question["respuestas"])
+                
+                if is_correct:
+                    first_correct = {
+                        "sid": sid,
+                        "name": player_name,
+                        "answer": user_answer,
+                        "timestamp": answer_data["timestamp"]
+                    }
+                    break
+            
+            if first_correct:
+                correct_answers.append(first_correct)
     
-    # Ordenar por timestamp (primero en responder)
+    # Ordenar por timestamp (primero en responder correctamente)
     correct_answers.sort(key=lambda x: x["timestamp"])
     
-    # Asignar puntos
+    # Asignar puntos: 3 al primero, 1 a los demás
     round_results = []
     for i, answer in enumerate(correct_answers):
         sid = answer["sid"]
-        rank = i + 1
-        points = POINTS_BY_RANK.get(rank, 0)
+        is_first = (i == 0)
+        points = FIRST_CORRECT_POINTS if is_first else OTHER_CORRECT_POINTS
         
-        if points > 0:
-            room["players"][sid]["score"] += points
+        room["players"][sid]["score"] += points
         
         round_results.append({
-            "rank": rank,
+            "rank": i + 1,
             "name": answer["name"],
             "answer": answer["answer"],
-            "points": points
+            "points": points,
+            "is_first": is_first
         })
     
     # Verificar si alguien ganó
@@ -281,7 +356,6 @@ async def end_round(room_id: str):
     # Preparar datos del resultado
     round_end_data = {
         "question": {
-            "texto": question["texto"],
             "respuestas_correctas": question["respuestas"]
         },
         "results": round_results,
@@ -290,6 +364,12 @@ async def end_round(room_id: str):
         "winner": winner
     }
     
+    # Agregar texto o pregunta según el tipo
+    if question.get("es_imagen", False):
+        round_end_data["question"]["pregunta"] = question["pregunta"]
+    else:
+        round_end_data["question"]["texto"] = question["texto"]
+    
     # Enviar resultados
     await sio.emit("round_end", round_end_data, room=room_id)
     
@@ -297,10 +377,51 @@ async def end_round(room_id: str):
     room["current_question"] = None
     room["round_start_time"] = None
     room["round_answers"] = {}
+    room["round_correct_players"] = set()
+    room["player_submission_times"] = {}
+    room["round_timer_task"] = None
 
 
+def is_rate_limited(room: Dict, sid: str) -> bool:
+    """
+    Verifica si un jugador está enviando demasiadas respuestas (antispam)
+    """
+    current_time = time.time()
+    
+    if sid not in room["player_submission_times"]:
+        room["player_submission_times"][sid] = []
+    
+    # Filtrar timestamps de la última segundo
+    recent_submissions = [
+        t for t in room["player_submission_times"][sid]
+        if current_time - t < 1.0
+    ]
+    
+    room["player_submission_times"][sid] = recent_submissions
+    
+    return len(recent_submissions) >= MAX_SUBMISSIONS_PER_SECOND
+
+
+async def check_round_completion(room_id: str):
+    """
+    Verifica si todos los jugadores han acertado para terminar la ronda anticipadamente
+    """
+    room = get_room(room_id)
+    if not room or not room["current_question"]:
+        return
+    
+    total_players = len(room["players"])
+    correct_players = len(room["round_correct_players"])
+    
+    # Si todos los jugadores han acertado, terminar la ronda
+    if correct_players >= total_players:
+        await end_round(room_id)
 @app.get("/")
 async def root():
+    """
+    Redirige a la interfaz del cliente
+    """
+    return FileResponse("static/client.html")
     """
     Redirige a la interfaz del cliente
     """
@@ -424,9 +545,10 @@ async def start_game(sid, data):
         room["game_finished"] = False
         room["winner"] = None
         
-        # Reiniciar puntuaciones
+        # Reiniciar puntuaciones y lista de preguntas usadas
         for player in room["players"].values():
             player["score"] = 0
+        room["used_questions"] = set()  # Resetear preguntas usadas
         
         await sio.emit("game_started", {}, room=room_id)
         
@@ -476,7 +598,7 @@ async def next_round(sid, data):
 @sio.event
 async def submit_answer(sid, data):
     """
-    Procesa la respuesta de un jugador
+    Procesa la respuesta de un jugador - permite múltiples intentos
     """
     try:
         room_id = data.get("room_id")
@@ -495,29 +617,62 @@ async def submit_answer(sid, data):
             await sio.emit("error", {"message": "No hay ronda activa"}, room=sid)
             return
         
-        if sid in room["round_answers"]:
-            await sio.emit("error", {"message": "Ya enviaste tu respuesta"}, room=sid)
+        # Verificar si el jugador ya acertó en esta ronda
+        if sid in room["round_correct_players"]:
+            await sio.emit("error", {"message": "Ya acertaste en esta ronda"}, room=sid)
+            return
+        
+        # Verificar límite de spam
+        if is_rate_limited(room, sid):
+            await sio.emit("error", {"message": "Enviando respuestas muy rápido, espera un momento"}, room=sid)
             return
         
         if not answer:
             await sio.emit("error", {"message": "La respuesta no puede estar vacía"}, room=sid)
             return
         
-        # Registrar respuesta con timestamp
-        room["round_answers"][sid] = {
+        # Registrar timestamp de envío para antispam
+        current_time = time.time()
+        if sid not in room["player_submission_times"]:
+            room["player_submission_times"][sid] = []
+        room["player_submission_times"][sid].append(current_time)
+        
+        # Inicializar lista de respuestas si no existe
+        if sid not in room["round_answers"]:
+            room["round_answers"][sid] = []
+        
+        # Agregar nueva respuesta
+        answer_data = {
             "answer": answer,
-            "timestamp": time.time()
+            "timestamp": current_time
         }
+        room["round_answers"][sid].append(answer_data)
         
         player_name = room["players"][sid]["name"]
         
-        # Confirmar recepción
-        await sio.emit("answer_submitted", {"answer": answer}, room=sid)
+        # Verificar si la respuesta es correcta
+        is_correct = check_answer(answer, room["current_question"]["respuestas"])
         
-        # Notificar a otros que alguien respondió (sin revelar la respuesta)
+        if is_correct:
+            # Marcar jugador como que ya acertó
+            room["round_correct_players"].add(sid)
+            
+            # Confirmar respuesta correcta
+            await sio.emit("answer_correct", {"answer": answer}, room=sid)
+            
+            # Notificar a otros que alguien acertó
+            await sio.emit("player_got_correct", {"name": player_name}, room=room_id)
+            
+            # Verificar si todos han acertado para terminar la ronda
+            await check_round_completion(room_id)
+        else:
+            # Confirmar recepción de respuesta incorrecta
+            await sio.emit("answer_incorrect", {"answer": answer}, room=sid)
+        
+        # Notificar a otros que alguien respondió (sin revelar si es correcta)
         await sio.emit("player_answered", {"name": player_name}, room=room_id)
         
-        print(f"📝 {player_name} respondió: {answer}")
+        print(f"📝 {player_name} respondió: {answer} ({'✓' if is_correct else '✗'})")
         
     except Exception as e:
         print(f"❌ Error en submit_answer: {e}")

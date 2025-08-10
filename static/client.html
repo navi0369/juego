@@ -192,6 +192,35 @@
             color: #333;
         }
 
+        .question-image-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px 0;
+        }
+
+        .question-image {
+            max-width: 100%;
+            max-height: 400px;
+            width: auto;
+            height: auto;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            object-fit: contain;
+        }
+
+        .question-prompt {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2d3748;
+            text-align: center;
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
         .players-list {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -395,6 +424,10 @@
             <div class="question-container">
                 <div id="question-type" class="question-type"></div>
                 <div id="question-text" class="question-text"></div>
+                <div id="question-image-container" class="question-image-container hidden">
+                    <img id="question-image" class="question-image" src="" alt="Pregunta">
+                    <div id="question-prompt" class="question-prompt"></div>
+                </div>
                 <div id="timer" class="timer">30</div>
                 
                 <div id="answer-form" class="answer-form">
@@ -473,6 +506,9 @@
             socket.on('round_end', handleRoundEnd);
             socket.on('player_answered', handlePlayerAnswered);
             socket.on('answer_submitted', handleAnswerSubmitted);
+            socket.on('answer_correct', handleAnswerCorrect);
+            socket.on('answer_incorrect', handleAnswerIncorrect);
+            socket.on('player_got_correct', handlePlayerGotCorrect);
             socket.on('error', handleError);
         }
 
@@ -634,20 +670,47 @@
             document.getElementById('results-section').classList.add('hidden');
             document.getElementById('winner-section').classList.add('hidden');
 
-            // Mostrar datos de la pregunta
+            // Mostrar tipo de pregunta
             document.getElementById('question-type').textContent = data.tipo;
-            document.getElementById('question-text').textContent = data.texto;
 
-            // Limpiar input de respuesta
+            // Mostrar pregunta según el tipo (texto o imagen)
+            if (data.es_imagen) {
+                // Ocultar texto y mostrar imagen
+                document.getElementById('question-text').classList.add('hidden');
+                document.getElementById('question-image-container').classList.remove('hidden');
+                
+                // Configurar imagen
+                const imgElement = document.getElementById('question-image');
+                imgElement.src = data.imagen;
+                imgElement.onerror = function() {
+                    this.src = '/static/placeholder.png'; // Imagen de respaldo
+                    addEvent('Error cargando imagen', true);
+                };
+                
+                // Mostrar pregunta
+                document.getElementById('question-prompt').textContent = data.pregunta;
+                
+                addEvent(`Nueva pregunta: ${data.pregunta}`);
+            } else {
+                // Mostrar texto y ocultar imagen
+                document.getElementById('question-image-container').classList.add('hidden');
+                document.getElementById('question-text').classList.remove('hidden');
+                document.getElementById('question-text').textContent = data.texto;
+                
+                addEvent(`Nueva pregunta: ${data.texto}`);
+            }
+
+            // Resetear input de respuesta para nueva ronda
             const answerInput = document.getElementById('answer-input');
             answerInput.value = '';
             answerInput.disabled = false;
+            answerInput.style.backgroundColor = '';
+            answerInput.style.borderColor = '';
+            answerInput.focus();
             document.getElementById('answer-form').style.display = 'block';
 
             // Iniciar temporizador
             startTimer(data.duration);
-
-            addEvent(`Nueva pregunta: ${data.texto}`);
         }
 
         function handleRoundEnd(data) {
@@ -662,6 +725,9 @@
             const answersList = document.getElementById('answers-list');
             answersList.innerHTML = data.question.respuestas_correctas.join(', ');
 
+            // Mostrar la pregunta que se respondió
+            const questionText = data.question.texto || data.question.pregunta || 'Pregunta';
+            
             // Mostrar podio
             const podium = document.getElementById('podium');
             podium.innerHTML = '';
@@ -715,11 +781,34 @@
         }
 
         function handleAnswerSubmitted(data) {
-            // Deshabilitar input después de enviar
-            document.getElementById('answer-input').disabled = true;
-            document.getElementById('answer-form').style.display = 'none';
-            showStatus(`Respuesta enviada: "${data.answer}"`, 'success');
+            showStatus(`Respuesta enviada: "${data.answer}"`, 'info');
             addEvent(`Enviaste: "${data.answer}"`, true);
+        }
+
+        function handleAnswerCorrect(data) {
+            // Deshabilitar input después de respuesta correcta
+            const answerInput = document.getElementById('answer-input');
+            answerInput.disabled = true;
+            answerInput.style.backgroundColor = '#d4edda';
+            answerInput.style.borderColor = '#28a745';
+            
+            document.getElementById('answer-form').style.display = 'none';
+            showStatus(`¡CORRECTO! "${data.answer}"`, 'success');
+            addEvent(`¡Acertaste con: "${data.answer}"!`, true);
+        }
+
+        function handleAnswerIncorrect(data) {
+            // Limpiar el input para permitir otro intento
+            const answerInput = document.getElementById('answer-input');
+            answerInput.value = '';
+            answerInput.focus();
+            
+            showStatus(`Incorrecto: "${data.answer}". ¡Intenta de nuevo!`, 'error');
+            addEvent(`Respuesta incorrecta: "${data.answer}"`, true);
+        }
+
+        function handlePlayerGotCorrect(data) {
+            addEvent(`🎉 ${data.name} acertó la respuesta`, true);
         }
 
         function handleError(data) {

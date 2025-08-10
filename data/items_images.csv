@@ -1,0 +1,12 @@
+id,tipo,pregunta,imagen,respuestas
+1001,película,"¿De qué película es esta escena?","images/gremlins.jpg","Gremlins"
+1003,película,"¿De qué película es esta escena?","images/titanic.jpg","Titanic"
+1004,película,"¿De qué película es esta escena?","images/avatar.jpg","Avatar"
+1005,película,"¿De qué película es esta escena?","images/jurassic_park.jpg","Jurassic Park;Parque Jurásico"
+1006,película,"¿De qué película es esta escena?","images/the_lion_king.jpg","The Lion King;El Rey León, rey leon, el rey leon"
+1007,película,"¿De qué película es esta escena?","images/toy_story.jpg","Toy Story"
+1008,película,"¿De qué película es esta escena?","images/harry_potter_sorcerers_stone.jpg","Harry Potter and the Sorcerer's Stone;Harry Potter"
+1009,película,"¿De qué película es esta escena?","images/lotr_fellowship_of_the_ring.jpg","The Lord of the Rings The Fellowship of the Ring;El Señor de los Anillos"
+1010,película,"¿De qué película es esta escena?","images/matrix.jpg","The Matrix;Matrix"
+1011,película,"¿De qué película es esta escena?","images/star_wars_a_new_hope.jpg","Star Wars;Star Wars A New Hope;La guerra de las galaxias, star wars"
+

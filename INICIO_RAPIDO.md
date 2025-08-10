@@ -9,6 +9,9 @@ iniciar_servidor.bat
 
 # Opción 2: Comando manual (con entorno virtual)
 C:/proyect/.venv/Scripts/python.exe -m uvicorn server:asgi --host 0.0.0.0 --port 8000
+
+# 2.1: Comando manual para Linux (con entorno virtual)
+./.venv/bin/python -m uvicorn server:asgi --host 0.0.0.0 --port 8000
 ```
 
 ### 2. Obtener tu IP LAN
@@ -25,6 +28,8 @@ hostname -I
 Los jugadores abren un navegador y van a:
 ```
 http://TU-IP-LAN:8000
+#ejemplo
+http://192.168.0.99:8000
 ```
 Ejemplo: `http://192.168.0.13:8000`
 
@@ -33,24 +38,51 @@ Ejemplo: `http://192.168.0.13:8000`
 1. **Primer jugador**: Se convierte automáticamente en HOST
 2. **Otros jugadores**: Se unen a la misma sala
 3. **HOST inicia**: Presiona "Iniciar Juego"
-4. **Responder**: Escribir respuesta cuando aparece la pregunta
-5. **Puntos**: 1º lugar = 3pts, 2º = 2pts, 3º = 1pt
-6. **Ganar**: Primer jugador en llegar a 15 puntos
+4. **Responder**: Tienes 30 segundos para responder
+5. **Múltiples intentos**: Puedes enviar varias respuestas hasta acertar
+6. **Puntos**: Primer acierto = 3pts, otros aciertos = 1pt
+7. **Bloqueo**: Una vez que aciertas, no puedes responder más en esa ronda
+8. **Fin de ronda**: Termina cuando se acaba el tiempo (30s) o todos aciertan
+9. **Ganar**: Primer jugador en llegar a 15 puntos
+
+## 🎯 Reglas de Ronda
+
+- **Duración**: 30 segundos fijos por ronda
+- **Múltiples intentos**: Envía tantas respuestas como quieras hasta acertar
+- **Puntuación**:
+  - 🥇 Primer acierto: **3 puntos**
+  - 🥈 Otros aciertos: **1 punto**
+  - ❌ Sin acierto: **0 puntos**
+- **Bloqueo**: Si aciertas, quedas bloqueado para esa ronda
+- **Antispam**: Máximo 5 respuestas por segundo
 
 ## 📁 Archivos Principales
 
 - `server.py` - Servidor backend
 - `static/client.html` - Interfaz web
-- `data/items.csv` - Preguntas del juego
+- `data/items.csv` - Preguntas de texto tradicionales
+- `data/items_images.csv` - Preguntas con imágenes
+- `data/images/` - Carpeta de imágenes locales
 - `requirements.txt` - Dependencias Python
 
 ## ⚙️ Personalización
 
-Edita `data/items.csv` para agregar tus propias preguntas:
+### Preguntas de Texto:
+Edita `data/items.csv`:
 ```csv
 id,tipo,texto,respuestas
 21,deporte,"Deporte con raqueta y volante",Bádminton;Badminton
 ```
+
+### Preguntas con Imágenes:
+Edita `data/items_images.csv`:
+```csv
+id,tipo,pregunta,imagen,respuestas
+1,persona,"¿Quién es esta persona?","images/einstein.jpg","Einstein;Albert Einstein"
+2,lugar,"¿Qué lugar es este?","https://example.com/tower.jpg","París;Torre Eiffel"
+```
+
+**🖼️ El sistema detecta automáticamente si usar texto o imágenes**
 
 ## 🔧 Solución de Problemas
 
@@ -75,7 +107,9 @@ uvicorn server:asgi --host 0.0.0.0 --port 8001
 Modifica variables en `server.py`:
 - `TARGET_POINTS_DEFAULT = 15` (puntos para ganar)
 - `ROUND_SECONDS = 30` (tiempo por ronda)
-- `POINTS_BY_RANK = {1: 3, 2: 2, 3: 1}` (puntos por posición)
+- `FIRST_CORRECT_POINTS = 3` (puntos al primero que acierta)
+- `OTHER_CORRECT_POINTS = 1` (puntos a otros que aciertan)
+- `MAX_SUBMISSIONS_PER_SECOND = 5` (límite antispam)
 
 ---
 
