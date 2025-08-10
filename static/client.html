@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trivia LAN - Juego Multijugador</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            text-align: center;
+            color: #4a5568;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            color: #2d3748;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 600;
+        }
+
+        .status.success {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+
+        .status.error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #fc8181;
+        }
+
+        .status.info {
+            background: #bee3f8;
+            color: #2a4365;
+            border: 1px solid #90cdf4;
+        }
+
+        .question-container {
+            text-align: center;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+        }
+
+        .question-type {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            display: inline-block;
+        }
+
+        .question-text {
+            font-size: 1.8rem;
+            margin: 20px 0;
+            line-height: 1.4;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .timer {
+            font-size: 2rem;
+            font-weight: bold;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px 25px;
+            border-radius: 50px;
+            margin: 20px 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .timer.warning {
+            background: rgba(255, 69, 0, 0.8);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .answer-form {
+            margin: 20px 0;
+        }
+
+        .answer-input {
+            font-size: 18px;
+            padding: 15px 20px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+        }
+
+        .players-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .player-card {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .player-name {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+            color: #2d3748;
+        }
+
+        .player-score {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .events-log {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .event {
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+            color: #4a5568;
+        }
+
+        .event:last-child {
+            border-bottom: none;
+        }
+
+        .event.answer {
+            color: #38a169;
+            font-weight: 600;
+        }
+
+        .results-container {
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            border-radius: 15px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+
+        .results-title {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #2d3748;
+        }
+
+        .correct-answers {
+            background: rgba(255, 255, 255, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .podium {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .podium-place {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 120px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .podium-place.first {
+            background: linear-gradient(135deg, #ffd700, #ffed4e);
+            transform: scale(1.1);
+        }
+
+        .podium-place.second {
+            background: linear-gradient(135deg, #c0c0c0, #e5e5e5);
+        }
+
+        .podium-place.third {
+            background: linear-gradient(135deg, #cd7f32, #daa520);
+        }
+
+        .winner-announcement {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            text-align: center;
+            padding: 30px;
+            border-radius: 15px;
+            margin: 20px 0;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+
+        .host-badge {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .card {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .question-text {
+                font-size: 1.4rem;
+            }
+            
+            .timer {
+                font-size: 1.5rem;
+                padding: 10px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Trivia LAN</h1>
+        
+        <!-- Formulario de conexión -->
+        <div id="join-form" class="card">
+            <h2>Unirse al Juego</h2>
+            <div class="form-group">
+                <label for="room-id">Nombre de la Sala:</label>
+                <input type="text" id="room-id" placeholder="Ej: sala1" maxlength="20" required>
+            </div>
+            <div class="form-group">
+                <label for="player-name">Tu Nombre:</label>
+                <input type="text" id="player-name" placeholder="Ej: Juan" maxlength="20" required>
+            </div>
+            <button onclick="joinRoom()">🚀 Unirse</button>
+        </div>
+
+        <!-- Estado de conexión -->
+        <div id="status-container"></div>
+
+        <!-- Información de la sala -->
+        <div id="room-info" class="card hidden">
+            <h2>Sala: <span id="current-room"></span></h2>
+            <p>Jugador: <strong id="current-player"></strong> <span id="host-indicator" class="host-badge hidden">HOST</span></p>
+            
+            <!-- Controles del host -->
+            <div id="host-controls" class="controls hidden">
+                <button onclick="startGame()">🎮 Iniciar Juego</button>
+                <button id="next-round-btn" onclick="nextRound()" class="hidden">▶️ Siguiente Ronda</button>
+            </div>
+        </div>
+
+        <!-- Lista de jugadores -->
+        <div id="players-section" class="card hidden">
+            <h2>👥 Jugadores</h2>
+            <div id="players-list" class="players-list"></div>
+        </div>
+
+        <!-- Pregunta actual -->
+        <div id="question-section" class="hidden">
+            <div class="question-container">
+                <div id="question-type" class="question-type"></div>
+                <div id="question-text" class="question-text"></div>
+                <div id="timer" class="timer">30</div>
+                
+                <div id="answer-form" class="answer-form">
+                    <input type="text" id="answer-input" class="answer-input" placeholder="Escribe tu respuesta aquí..." maxlength="100">
+                    <br><br>
+                    <button onclick="submitAnswer()">📝 Enviar Respuesta</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resultados de la ronda -->
+        <div id="results-section" class="hidden">
+            <div class="results-container">
+                <div class="results-title">📊 Resultados de la Ronda</div>
+                
+                <div id="correct-answers" class="correct-answers">
+                    <strong>Respuestas correctas:</strong>
+                    <div id="answers-list"></div>
+                </div>
+                
+                <div id="podium" class="podium"></div>
+                
+                <div id="current-scores">
+                    <h3>🏆 Puntuaciones Actuales</h3>
+                    <div id="scores-list" class="players-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Anuncio del ganador -->
+        <div id="winner-section" class="hidden">
+            <div class="winner-announcement">
+                🎉 ¡<span id="winner-name"></span> ha ganado la partida! 🎉
+            </div>
+        </div>
+
+        <!-- Log de eventos -->
+        <div id="events-section" class="card hidden">
+            <h2>📋 Eventos del Juego</h2>
+            <div id="events-log" class="events-log"></div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let socket;
+        let currentRoom = null;
+        let currentPlayer = null;
+        let isHost = false;
+        let gameStarted = false;
+        let roundActive = false;
+        let timerInterval = null;
+
+        // Inicializar conexión Socket.IO
+        function initSocket() {
+            socket = io();
+
+            // Eventos de conexión
+            socket.on('connect', () => {
+                console.log('Conectado al servidor');
+                showStatus('Conectado al servidor', 'success');
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Desconectado del servidor');
+                showStatus('Desconectado del servidor', 'error');
+            });
+
+            // Eventos del juego
+            socket.on('room_joined', handleRoomJoined);
+            socket.on('player_joined', handlePlayerJoined);
+            socket.on('player_left', handlePlayerLeft);
+            socket.on('players_update', handlePlayersUpdate);
+            socket.on('game_started', handleGameStarted);
+            socket.on('round_start', handleRoundStart);
+            socket.on('round_end', handleRoundEnd);
+            socket.on('player_answered', handlePlayerAnswered);
+            socket.on('answer_submitted', handleAnswerSubmitted);
+            socket.on('error', handleError);
+        }
+
+        // Mostrar mensajes de estado
+        function showStatus(message, type = 'info') {
+            const container = document.getElementById('status-container');
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            
+            container.innerHTML = '';
+            container.appendChild(statusDiv);
+            
+            // Auto-ocultar después de 5 segundos (excepto errores)
+            if (type !== 'error') {
+                setTimeout(() => {
+                    statusDiv.remove();
+                }, 5000);
+            }
+        }
+
+        // Agregar evento al log
+        function addEvent(message, isAnswer = false) {
+            const eventsLog = document.getElementById('events-log');
+            const eventDiv = document.createElement('div');
+            eventDiv.className = `event ${isAnswer ? 'answer' : ''}`;
+            eventDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            
+            eventsLog.appendChild(eventDiv);
+            eventsLog.scrollTop = eventsLog.scrollHeight;
+        }
+
+        // Unirse a una sala
+        function joinRoom() {
+            const roomId = document.getElementById('room-id').value.trim();
+            const playerName = document.getElementById('player-name').value.trim();
+
+            if (!roomId || !playerName) {
+                showStatus('Por favor completa todos los campos', 'error');
+                return;
+            }
+
+            // Validar caracteres especiales
+            if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+                showStatus('El nombre de sala solo puede contener letras, números, _ y -', 'error');
+                return;
+            }
+
+            if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ0-9\s_-]+$/.test(playerName)) {
+                showStatus('El nombre de jugador contiene caracteres no válidos', 'error');
+                return;
+            }
+
+            socket.emit('join_room', {
+                room_id: roomId,
+                player_name: playerName
+            });
+
+            showStatus('Intentando unirse a la sala...', 'info');
+        }
+
+        // Iniciar juego (solo host)
+        function startGame() {
+            if (!isHost || !currentRoom) return;
+
+            socket.emit('start_game', {
+                room_id: currentRoom
+            });
+        }
+
+        // Siguiente ronda (solo host)
+        function nextRound() {
+            if (!isHost || !currentRoom) return;
+
+            socket.emit('next_round', {
+                room_id: currentRoom
+            });
+        }
+
+        // Enviar respuesta
+        function submitAnswer() {
+            if (!roundActive || !currentRoom) return;
+
+            const answerInput = document.getElementById('answer-input');
+            const answer = answerInput.value.trim();
+
+            if (!answer) {
+                showStatus('Debes escribir una respuesta', 'error');
+                return;
+            }
+
+            socket.emit('submit_answer', {
+                room_id: currentRoom,
+                answer: answer
+            });
+        }
+
+        // Manejadores de eventos del socket
+
+        function handleRoomJoined(data) {
+            currentRoom = data.room_id;
+            currentPlayer = data.player_name;
+            isHost = data.is_host;
+            gameStarted = data.game_started;
+
+            // Ocultar formulario y mostrar interfaz del juego
+            document.getElementById('join-form').classList.add('hidden');
+            document.getElementById('room-info').classList.remove('hidden');
+            document.getElementById('players-section').classList.remove('hidden');
+            document.getElementById('events-section').classList.remove('hidden');
+
+            // Mostrar información de la sala
+            document.getElementById('current-room').textContent = currentRoom;
+            document.getElementById('current-player').textContent = currentPlayer;
+
+            if (isHost) {
+                document.getElementById('host-indicator').classList.remove('hidden');
+                document.getElementById('host-controls').classList.remove('hidden');
+            }
+
+            showStatus(`Te uniste a la sala "${currentRoom}" como ${currentPlayer}`, 'success');
+            addEvent(`Te uniste a la sala como ${currentPlayer}`);
+        }
+
+        function handlePlayerJoined(data) {
+            addEvent(`${data.name} se unió al juego`);
+        }
+
+        function handlePlayerLeft(data) {
+            addEvent(`${data.name} abandonó el juego`);
+        }
+
+        function handlePlayersUpdate(data) {
+            const playersList = document.getElementById('players-list');
+            playersList.innerHTML = '';
+
+            data.players.forEach(player => {
+                const playerCard = document.createElement('div');
+                playerCard.className = 'player-card';
+                playerCard.innerHTML = `
+                    <div class="player-name">${player.name}</div>
+                    <div class="player-score">${player.score} pts</div>
+                `;
+                playersList.appendChild(playerCard);
+            });
+        }
+
+        function handleGameStarted() {
+            gameStarted = true;
+            showStatus('¡El juego ha comenzado!', 'success');
+            addEvent('El juego ha comenzado');
+        }
+
+        function handleRoundStart(data) {
+            roundActive = true;
+            
+            // Mostrar sección de pregunta
+            document.getElementById('question-section').classList.remove('hidden');
+            document.getElementById('results-section').classList.add('hidden');
+            document.getElementById('winner-section').classList.add('hidden');
+
+            // Mostrar datos de la pregunta
+            document.getElementById('question-type').textContent = data.tipo;
+            document.getElementById('question-text').textContent = data.texto;
+
+            // Limpiar input de respuesta
+            const answerInput = document.getElementById('answer-input');
+            answerInput.value = '';
+            answerInput.disabled = false;
+            document.getElementById('answer-form').style.display = 'block';
+
+            // Iniciar temporizador
+            startTimer(data.duration);
+
+            addEvent(`Nueva pregunta: ${data.texto}`);
+        }
+
+        function handleRoundEnd(data) {
+            roundActive = false;
+            stopTimer();
+
+            // Ocultar pregunta y mostrar resultados
+            document.getElementById('question-section').classList.add('hidden');
+            document.getElementById('results-section').classList.remove('hidden');
+
+            // Mostrar respuestas correctas
+            const answersList = document.getElementById('answers-list');
+            answersList.innerHTML = data.question.respuestas_correctas.join(', ');
+
+            // Mostrar podio
+            const podium = document.getElementById('podium');
+            podium.innerHTML = '';
+
+            const podiumClasses = ['first', 'second', 'third'];
+            data.results.forEach((result, index) => {
+                if (result.points > 0) {
+                    const podiumPlace = document.createElement('div');
+                    podiumPlace.className = `podium-place ${podiumClasses[index] || ''}`;
+                    podiumPlace.innerHTML = `
+                        <div style="font-weight: bold; font-size: 1.2rem;">${index + 1}°</div>
+                        <div>${result.name}</div>
+                        <div style="font-size: 0.9rem; opacity: 0.8;">"${result.answer}"</div>
+                        <div style="font-weight: bold; color: #667eea;">+${result.points} pts</div>
+                    `;
+                    podium.appendChild(podiumPlace);
+                }
+            });
+
+            // Actualizar puntuaciones
+            const scoresList = document.getElementById('scores-list');
+            scoresList.innerHTML = '';
+
+            // Ordenar por puntuación
+            const sortedScores = Object.entries(data.scores).sort((a, b) => b[1] - a[1]);
+            sortedScores.forEach(([name, score]) => {
+                const scoreCard = document.createElement('div');
+                scoreCard.className = 'player-card';
+                scoreCard.innerHTML = `
+                    <div class="player-name">${name}</div>
+                    <div class="player-score">${score} pts</div>
+                `;
+                scoresList.appendChild(scoreCard);
+            });
+
+            // Mostrar ganador si el juego terminó
+            if (data.game_finished && data.winner) {
+                document.getElementById('winner-section').classList.remove('hidden');
+                document.getElementById('winner-name').textContent = data.winner;
+                addEvent(`¡${data.winner} ha ganado la partida!`);
+            } else if (isHost) {
+                // Mostrar botón de siguiente ronda para el host
+                document.getElementById('next-round-btn').classList.remove('hidden');
+            }
+
+            addEvent('Ronda terminada');
+        }
+
+        function handlePlayerAnswered(data) {
+            addEvent(`${data.name} envió su respuesta`, true);
+        }
+
+        function handleAnswerSubmitted(data) {
+            // Deshabilitar input después de enviar
+            document.getElementById('answer-input').disabled = true;
+            document.getElementById('answer-form').style.display = 'none';
+            showStatus(`Respuesta enviada: "${data.answer}"`, 'success');
+            addEvent(`Enviaste: "${data.answer}"`, true);
+        }
+
+        function handleError(data) {
+            showStatus(data.message, 'error');
+            addEvent(`Error: ${data.message}`);
+        }
+
+        // Funciones del temporizador
+        function startTimer(duration) {
+            let timeLeft = duration;
+            const timerElement = document.getElementById('timer');
+
+            timerInterval = setInterval(() => {
+                timerElement.textContent = timeLeft;
+                
+                // Cambiar color cuando quedan pocos segundos
+                if (timeLeft <= 10) {
+                    timerElement.classList.add('warning');
+                } else {
+                    timerElement.classList.remove('warning');
+                }
+
+                timeLeft--;
+
+                if (timeLeft < 0) {
+                    stopTimer();
+                    // Deshabilitar envío de respuesta
+                    document.getElementById('answer-input').disabled = true;
+                    document.getElementById('answer-form').style.display = 'none';
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            document.getElementById('timer').classList.remove('warning');
+        }
+
+        // Eventos de teclado
+        document.addEventListener('DOMContentLoaded', () => {
+            // Enter para unirse a la sala
+            document.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    if (!document.getElementById('join-form').classList.contains('hidden')) {
+                        joinRoom();
+                    } else if (roundActive && !document.getElementById('answer-input').disabled) {
+                        submitAnswer();
+                    }
+                }
+            });
+
+            // Ocultar botón de siguiente ronda cuando se inicia una nueva
+            document.addEventListener('round_start', () => {
+                document.getElementById('next-round-btn').classList.add('hidden');
+            });
+        });
+
+        // Inicializar aplicación
+        initSocket();
+    </script>
+</body>
+</html>
